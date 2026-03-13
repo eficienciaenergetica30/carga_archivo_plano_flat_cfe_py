@@ -1,0 +1,15 @@
+applications:
+  - name: carga-archivo-flat-cfe-py-dev
+    memory: 1G
+    buildpack: https://github.com/cloudfoundry/python-buildpack.git#v1.8.4
+    command: gunicorn --worker-class eventlet -w 2 --timeout 120 --keep-alive 5 --graceful-timeout 30 app:app --bind 0.0.0.0:$PORT
+    health-check-type: http
+    health-check-http-endpoint: /health
+    env:
+      FLASK_ENV: production
+      ENVIRONMENT: dev
+      DELETE_URL: https://telcl-prd-db-cap-telcl-srv.cfapps.us10.hana.ondemand.com/dataservices/truncateTempRep4CFE
+      TEMP_REP4_URL: https://telcl-prd-db-cap-telcl-srv.cfapps.us10.hana.ondemand.com/dataservices/TempRep4CFE
+      PYTHONUNBUFFERED: "true"
+      HTTP_TIMEOUT: "90"
+      DNS_CACHE_TTL: "0"

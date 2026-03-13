@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Carga de ArchivoPlano</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.2/css/bootstrap.min.css" rel="stylesheet" />
+    <!-- SweetAlert2 -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <!-- Bootstrap Icons -->
+    <!-- Agregar en el head -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+
+<body class="bg-light">
+    <div class="container mt-5">
+        <div class="row justify-content-center">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Carga de ArchivoPlano</h5>
+
+                        <!-- Mostrar mensajes flash -->
+                        {% with messages = get_flashed_messages(with_categories=true) %}
+                        {% if messages %} {% for category, message in messages %}
+                        <div class="alert alert-{{ 'danger' if category == 'error' else 'success' }} alert-dismissible fade show"
+                            role="alert">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>
+                        {% endfor %} {% endif %} {% endwith %}
+
+                        <form method="POST" enctype="multipart/form-data" id="uploadForm">
+                            <div class="row g-3 mb-3">
+                                <div class="col-12">
+                                    <label for="excelFile" class="form-label">Selecciona un archivo</label>
+                                    <input class="form-control" type="file" id="excelFile" name="excelFile"
+                                        accept=".xlsx,.xls,.xlsb" required />
+                                    <div class="form-text">
+                                        Formatos permitidos: .xlsx, .xls, .xlsb
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="
+                    margin-top: 20px;
+                    display: flex;
+                    gap: 10px;
+                    width: 100%;
+                  ">
+                                <!-- Botón Procesar archivo -->
+                                <button id="btnProcesar" type="submit" style="
+                      flex: 1;
+                      padding: 10px;
+                      background-color: #006eff;
+                      color: white;
+                      border: none;
+                      border-radius: 5px;
+                      cursor: pointer;
+                    ">
+                                    <span id="btnProcesarText"><i class="bi bi-upload"></i> Mostrar infromación</span>
+                                    <span id="btnProcesarSpinner" style="display:none;">
+                                        <span class="spinner-border spinner-border-sm" role="status"></span>
+                                        Procesando...
+                                    </span>
+                                </button>
+                            </div>
+                        </form>
+
+                        <!-- Resultados -->
+                        {% if resultado %}
+                        <div class="mt-4">
+                            <div class="alert alert-info">
+                                <h5>Resultados del procesamiento</h5>
+                                <p>
+                                    <strong>Archivo:</strong> {{ resultado.nombre_archivo }}
+                                </p>
+                                <p>
+                                    <strong>Periodo (leído del archivo):</strong> {{
+                                    resultado.fecha_facturacion }}
+                                </p>
+                                <p>
+                                    <strong>Número de hojas:</strong> {{ resultado.num_hojas }}
+                                </p>
+                            </div>
+
+                            {% for hoja in resultado.hojas %}
+                            <div class="card mt-3">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <span>Hoja: {{ hoja.nombre }}</span>
+                                    <div>
+                                        <span class="badge bg-warning me-2">Mostrando {{ hoja.datos_preview|length }}
+                                            de {{
+                                            hoja.total_filas }} filas</span>
+                                    </div>
+                                </div>
+                                <div class="card-body">
+                                    <div class="table-responsive">
+                                        <table class="table table-striped table-bordered table-sm">
+                                            <thead class="table-light">
+                                                <tr>
+                                                    {% for encabezado in hoja.encabezados %}
+                                                    <th style="text-align: center; white-space: nowrap;">
+                                                        {{ encabezado if encabezado is not none else '' }}
+                                                    </th>
+                                                    {% endfor %}
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {% for fila in hoja.datos_preview %}
+                                                <tr>
+                                                    {% for celda in fila %}
+                                                    <td style="white-space: nowrap;">{{ celda if celda is not none else '' }}</td>
+                                                    {% endfor %}
+                                                </tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        <div class="mt-4 text-center">
+                            <button id="sendDataBtn" class="btn btn-success btn-lg w-100">
+                                <i class="bi bi-send-fill"></i> Enviar datos
+                            </button>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS Bundle -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.2/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        document.getElementById("uploadForm").addEventListener("submit", function (e) {
+            e.preventDefault();
+
+            const btn = document.getElementById("btnProcesar");
+            const fileInput = document.getElementById("excelFile");
+
+            if (fileInput.files.length > 0 && fileInput.files[0].name.toLowerCase().endsWith('.xlsb')) {
+                Swal.fire({
+                    title: "Convirtiendo y procesando...",
+                    html: "El archivo se está procesando.<br><br><b>Esto puede tardar varios minutos</b> dependiendo del tamaño del archivo. Por favor, no cierre esta ventana.",
+                    allowOutsideClick: false,
+                    didOpen: () => Swal.showLoading()
+                });
+            }
+
+            btn.disabled = true;
+            btn.style.backgroundColor = "#6c757d";
+            btn.style.cursor = "not-allowed";
+            document.getElementById("btnProcesarText").style.display = "none";
+            document.getElementById("btnProcesarSpinner").style.display = "inline";
+
+            setTimeout(() => { this.submit(); }, 50);
+        });
+    </script>
+
+    <!-- Script para borrar datos -->
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            const deleteBtn = document.getElementById("deleteAllBtn");
+            if (!deleteBtn) return;
+
+            deleteBtn.addEventListener("click", async () => {
+                const { isConfirmed } = await Swal.fire({
+                    title: "¿Estás seguro?",
+                    text: "Esta acción borrará TODOS los datos existentes y no se puede deshacer",
+                    icon: "warning",
+                    showCancelButton: true,
+                    confirmButtonColor: "#d33",
+                    cancelButtonColor: "#3085d6",
+                    confirmButtonText: "Sí, borrar todo",
+                    cancelButtonText: "Cancelar",
+                });
+
+                if (!isConfirmed) return;
+
+                Swal.fire({
+                    title: "Borrando datos...",
+                    html: "Por favor espera mientras se eliminan todos los registros",
+                    allowOutsideClick: false,
+                    didOpen: () => Swal.showLoading(),
+                });
+
+                try {
+                    const response = await fetch("/borrar_datos", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                    });
+
+                    let result;
+                    try {
+                        result = await response.json();
+                    } catch (parseErr) {
+                        const text = await response.text();
+                        const cleaned = text.replace(/^\uFEFF/, "").replace(/^\s*\)\]\}',?\s*/, "");
+                        result = JSON.parse(cleaned);
+                    }
+
+                    Swal.close();
+
+                    if (result.success) {
+                        await Swal.fire({
+                            title: "¡Éxito!",
+                            text: result.message,
+                            icon: "success",
+                            confirmButtonText: "Aceptar",
+                        });
+                    } else {
+                        throw new Error(result.message);
+                    }
+                } catch (error) {
+                    Swal.close();
+                    await Swal.fire({
+                        title: "Error",
+                        text: error.message || "Ocurrió un error al borrar los datos",
+                        icon: "error",
+                        confirmButtonText: "Aceptar",
+                    });
+                }
+            });
+        });
+    </script>
+
+    <script>
+        const socket = io();
+        {% if resultado %}
+        const hojasData = {{ resultado.hojas | tojson | safe }};
+        {% else %}
+        const hojasData = [];
+        {% endif %}
+
+        // Función para resolver URLs adecuadamente detrás del proxy de SAP BTP
+        function resolveUrl(endpoint) {
+            let base = window.location.pathname;
+            if (!base.endsWith('/')) {
+                base += '/';
+            }
+            return base + endpoint;
+        }
+
+        // ─── Listener de progreso registrado UNA sola vez fuera del click ────────────
+        // Evita acumulación de listeners en cargas consecutivas que saturaba el socket.
+        let enviandoDatos = false;
+        socket.on('progress_update', (data) => {
+            if (!enviandoDatos) return;
+            const container = Swal.getHtmlContainer();
+            if (container) {
+                container.innerHTML =
+                    `Enviando datos...<br>${data.current} registros enviados de ${data.total}<br>Progreso: ${data.progress}%`;
+            }
+        });
+
+        document.getElementById("sendDataBtn")?.addEventListener("click", async () => {
+            enviandoDatos = true;
+            const sessionId = socket.id;
+            const sendButton = document.getElementById("sendDataBtn");
+            sendButton.disabled = true;
+            sendButton.innerHTML = '<i class="bi bi-hourglass"></i> Enviando...';
+            sendButton.classList.remove('btn-success');
+            sendButton.classList.add('btn-secondary');
+
+            Swal.fire({
+                title: "Enviando datos...",
+                html: "Preparando envío...",
+                allowOutsideClick: false,
+                didOpen: () => Swal.showLoading()
+            });
+
+            // ─── Helper: parsear respuesta de forma segura ───────────────────────────
+            async function safeParseResponse(response) {
+                const text = await response.text();
+                const cleaned = text.replace(/^\uFEFF/, "").replace(/^\s*\)\]\}',?\s*/, "").trim();
+                if (!cleaned) throw new Error(`Respuesta vacía del servidor (HTTP ${response.status})`);
+                try {
+                    return JSON.parse(cleaned);
+                } catch (e) {
+                    console.error("Respuesta no-JSON:", cleaned.slice(0, 300));
+                    throw new Error(`Respuesta inválida del servidor (HTTP ${response.status}): ${cleaned.slice(0, 120)}`);
+                }
+            }
+
+            // ─── fetchConReintentos: maneja 503/404/502 transitorios del GoRouter de BTP ─
+            // Los reintentos son silenciosos — el usuario solo ve el loader normal.
+            async function fetchConReintentos(url, opciones, maxIntentos = 4) {
+                const DELAYS_MS = [0, 5000, 10000, 15000];
+                const TRANSITORIOS = [503, 502, 404];
+                let ultimoError;
+                for (let intento = 0; intento < maxIntentos; intento++) {
+                    if (DELAYS_MS[intento] > 0) {
+                        await new Promise(r => setTimeout(r, DELAYS_MS[intento]));
+                    }
+                    try {
+                        const resp = await fetch(url, opciones);
+                        if (TRANSITORIOS.includes(resp.status)) {
+                            ultimoError = new Error(`HTTP ${resp.status} transitorio del servidor`);
+                            console.warn(`Intento ${intento + 1}: ${resp.status}, reintentando...`);
+                            continue;
+                        }
+                        return resp;
+                    } catch (err) {
+                        ultimoError = err;
+                        console.warn(`Intento ${intento + 1} falló con error de red:`, err.message);
+                    }
+                }
+                throw ultimoError;
+            }
+
+            // ─── Envío por hojas ─────────────────────────────────────────────────────────
+            try {
+                // 1) Vaciar la tabla una sola vez antes de enviar
+                Swal.getHtmlContainer().innerHTML = "Iniciando proceso, esto puede tardar algunos minutos dependiendo del tamaño del archivo.<br>Por favor no cierre la ventana.";
+                const delResp = await fetchConReintentos(resolveUrl("borrar_datos"), {
+                    method: "POST", headers: { "Content-Type": "application/json" }
+                });
+                const delResult = await safeParseResponse(delResp);
+                if (!delResult.success) throw new Error("No se pudo vaciar la tabla: " + delResult.message);
+
+                // 2) Enviar cada hoja por separado
+                const resultados = [];
+                const totalHojas = hojasData.length;
+
+                for (let i = 0; i < totalHojas; i++) {
+                    const hoja = hojasData[i];
+                    Swal.getHtmlContainer().innerHTML =
+                        `Enviando hoja ${i + 1} de ${totalHojas}: <strong>${hoja.nombre}</strong><br>` +
+                        `${hoja.datos ? hoja.datos.length : 0} registros...`;
+
+                    const response = await fetchConReintentos(
+                        resolveUrl(`enviar_hoja?session_id=${sessionId}`),
+                        {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ hoja: hoja })
+                        }
+                    );
+
+                    const result = await safeParseResponse(response);
+                    if (!result.success) throw new Error(`Error en hoja "${hoja.nombre}": ${result.error}`);
+                    resultados.push(result.resultado);
+                }
+
+                enviandoDatos = false;
+                Swal.close();
+
+                let resumen = resultados.map(r =>
+                    `Hoja ${r.hoja}: ${r.total} registros, ${r.exitos} ok, ${r.errores} errores`
+                ).join("<br>");
+
+                Swal.fire({
+                    title: "Proceso terminado",
+                    html: resumen,
+                    icon: "success",
+                    confirmButtonText: "Aceptar",
+                }).then((res) => {
+                    if (res.isConfirmed) window.location.href = resolveUrl("limpiar_y_redirigir");
+                });
+
+            } catch (err) {
+                enviandoDatos = false;
+                Swal.close();
+                Swal.fire("Error", err.message, "error");
+                resetSendButton();
+            }
+        });
+
+        function resetSendButton() {
+            const sendButton = document.getElementById("sendDataBtn");
+            sendButton.disabled = false;
+            sendButton.innerHTML = '<i class="bi bi-send-fill"></i> Enviar datos';
+            sendButton.classList.remove('btn-secondary');
+            sendButton.classList.add('btn-success');
+        }
+    </script>
+
+</body>
+
+</html>
