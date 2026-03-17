@@ -39,9 +39,9 @@
                                 <div class="col-12">
                                     <label for="excelFile" class="form-label">Selecciona un archivo</label>
                                     <input class="form-control" type="file" id="excelFile" name="excelFile"
-                                        accept=".xlsx,.xls,.xlsb" required />
+                                        accept=".xlsx,.xls" required />
                                     <div class="form-text">
-                                        Formatos permitidos: .xlsx, .xls, .xlsb
+                                        Formatos permitidos: .xlsx, .xls
                                     </div>
                                 </div>
                             </div>
@@ -145,15 +145,6 @@
 
             const btn = document.getElementById("btnProcesar");
             const fileInput = document.getElementById("excelFile");
-
-            if (fileInput.files.length > 0 && fileInput.files[0].name.toLowerCase().endsWith('.xlsb')) {
-                Swal.fire({
-                    title: "Convirtiendo y procesando...",
-                    html: "El archivo se está procesando.<br><br><b>Esto puede tardar varios minutos</b> dependiendo del tamaño del archivo. Por favor, no cierre esta ventana.",
-                    allowOutsideClick: false,
-                    didOpen: () => Swal.showLoading()
-                });
-            }
 
             btn.disabled = true;
             btn.style.backgroundColor = "#6c757d";

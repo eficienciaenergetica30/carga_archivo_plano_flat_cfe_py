@@ -6,6 +6,8 @@ import openpyxl
 from datetime import datetime, date
 from decimal import Decimal, ROUND_HALF_UP
 
+# 
+
 import math
 import requests
 from db import (
@@ -58,7 +60,7 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 # Configuración de la aplicación
 app.config["UPLOAD_FOLDER"] = "uploads"
 app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200 MB
-ALLOWED_EXTENSIONS = {"xlsx", "xls", "xlsb"}
+ALLOWED_EXTENSIONS = {"xlsx", "xls"}
 
 # Constantes
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", "100"))
@@ -135,51 +137,8 @@ def procesar_excel(filepath, fecha_facturacion=None):
     col_indices = list(COLS_INTERES.values())
 
     try:
-        is_xlsb = filepath.lower().endswith(".xlsb")
-        if is_xlsb:
-            import pyxlsb
-            from pyxlsb.worksheet import Worksheet, Cell
-            from pyxlsb import biff12
-            import os as _os
-
-            # Fix: algunos archivos .xlsb no tienen la propiedad 'dimension' definida.
-            # pyxlsb.rows() depende de ella para pre-crear las filas y falla con NoneType.
-            # Este parche construye las filas dinámicamente cuando dimension es None.
-            def _safe_rows(self, sparse=False):
-                self._reader.seek(self._data_offset, _os.SEEK_SET)
-                row_num = -1
-                row = None
-                for item in self._reader:
-                    if item[0] == biff12.ROW and item[1].r != row_num:
-                        if row is not None:
-                            yield row
-                        row_num = item[1].r
-                        if self.dimension is not None:
-                            row = [Cell(row_num, i, None) for i in range(self.dimension.c + self.dimension.w)]
-                        else:
-                            row = []
-                    elif item[0] >= biff12.BLANK and item[0] <= biff12.FORMULA_BOOLERR:
-                        if self.dimension is None:
-                            while len(row) <= item[1].c:
-                                row.append(Cell(row_num, len(row), None))
-                        if item[0] == biff12.STRING and self._stringtable is not None:
-                            row[item[1].c] = Cell(row_num, item[1].c, self._stringtable[item[1].v])
-                        else:
-                            row[item[1].c] = Cell(row_num, item[1].c, item[1].v)
-                    elif item[0] == biff12.SHEETDATA_END:
-                        if row is not None:
-                            yield row
-                        break
-            Worksheet.rows = _safe_rows
-
-            workbook_xlsb = pyxlsb.open_workbook(filepath)
-            sheet_names = workbook_xlsb.sheets
-            workbook = None
-        else:
-            workbook = openpyxl.load_workbook(filepath, data_only=True, read_only=True)
-            sheet_names = workbook.sheetnames
-            workbook_xlsb = None
-
+        workbook = openpyxl.load_workbook(filepath, data_only=True, read_only=True)
+        sheet_names = workbook.sheetnames
         num_sheets = len(sheet_names)
         hojas_procesadas = []
         mes, anio = "00", "0000"
@@ -187,19 +146,12 @@ def procesar_excel(filepath, fecha_facturacion=None):
         for sheet_name in sheet_names:
             encabezados = list(COLS_INTERES.keys())
             filas_validas = []
-
             fila_actual = 0
             fila_inicio = None
             header_found = False
 
-            if is_xlsb:
-                sheet_xlsb = workbook_xlsb.get_sheet(sheet_name)
-                row_iterator = ([c.v for c in r] for r in sheet_xlsb.rows())
-            else:
-                sheet = workbook[sheet_name]
-                row_iterator = sheet.iter_rows(values_only=True)
-
-            for row_cells in row_iterator:
+            sheet = workbook[sheet_name]
+            for row_cells in sheet.iter_rows(values_only=True):
                 fila_actual += 1
 
                 # ── Buscar Periodo (primeras 20 filas) ──────────────────────
@@ -230,46 +182,33 @@ def procesar_excel(filepath, fecha_facturacion=None):
                 if rpu_str.startswith("SUBTOTAL") or rpu_str.startswith("TOTAL"):
                     continue
 
-                # Extraer solo los índices de interés — valores crudos
                 fila_datos = [
                     row_cells[idx] if idx < len(row_cells) else None
                     for idx in col_indices
                 ]
-                # Agregar nombre de pestaña al final (campo IVATYPE)
                 fila_datos.append(sheet_name)
-
                 filas_validas.append(fila_datos)
 
-            total_filas_reales = len(filas_validas)
+            hojas_procesadas.append({
+                "nombre":          sheet_name,
+                "encabezados":     encabezados,
+                "datos":           filas_validas,
+                "datos_preview":   filas_validas[:40],
+                "fila_inicio":     fila_inicio or 0,
+                "total_filas":     len(filas_validas),
+                "filas_eliminadas": 0,
+                "periodo":         f"{anio}-{mes.zfill(2)}",
+                "headerperiod":    f"{anio}{mes.zfill(2)}",
+            })
 
-            hojas_procesadas.append(
-                {
-                    "nombre": sheet_name,
-                    "encabezados": encabezados,
-                    "datos": filas_validas,
-                    "datos_preview": filas_validas[:40],
-                    "fila_inicio": fila_inicio or 0,
-                    "total_filas": total_filas_reales,
-                    "filas_eliminadas": 0,
-                    "periodo": f"{anio}-{mes.zfill(2)}",
-                    "headerperiod": f"{anio}{mes.zfill(2)}",
-                }
-            )
-
-            if is_xlsb:
-                sheet_xlsb.close()
-
-        if is_xlsb:
-            workbook_xlsb.close()
-        else:
-            workbook.close()
+        workbook.close()
 
         return {
-            "num_hojas": num_sheets,
-            "nombres_hojas": sheet_names,
-            "hojas": hojas_procesadas,
+            "num_hojas":         num_sheets,
+            "nombres_hojas":     sheet_names,
+            "hojas":             hojas_procesadas,
             "fecha_facturacion": f"{mes}/{anio}",
-            "nombre_archivo": os.path.basename(filepath),
+            "nombre_archivo":    os.path.basename(filepath),
         }
 
     except Exception as e:
