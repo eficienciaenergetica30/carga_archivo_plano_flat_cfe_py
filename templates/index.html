@@ -39,9 +39,9 @@
                                 <div class="col-12">
                                     <label for="excelFile" class="form-label">Selecciona un archivo</label>
                                     <input class="form-control" type="file" id="excelFile" name="excelFile"
-                                        accept=".xlsx,.xls" required />
+                                        accept=".xlsx,.xls,.xlsb" required />
                                     <div class="form-text">
-                                        Formatos permitidos: .xlsx, .xls
+                                        Formatos permitidos: .xlsx, .xls, .xlsb
                                     </div>
                                 </div>
                             </div>
@@ -145,6 +145,15 @@
 
             const btn = document.getElementById("btnProcesar");
             const fileInput = document.getElementById("excelFile");
+
+            if (fileInput.files.length > 0 && fileInput.files[0].name.toLowerCase().endsWith('.xlsb')) {
+                Swal.fire({
+                    title: "Convirtiendo y procesando...",
+                    html: "El archivo se está procesando.<br><br><b>Esto puede tardar varios minutos</b> dependiendo del tamaño del archivo. Por favor, no cierre esta ventana.",
+                    allowOutsideClick: false,
+                    didOpen: () => Swal.showLoading()
+                });
+            }
 
             btn.disabled = true;
             btn.style.backgroundColor = "#6c757d";
@@ -310,7 +319,7 @@
             // ─── Envío por hojas ─────────────────────────────────────────────────────────
             try {
                 // 1) Vaciar la tabla una sola vez antes de enviar
-                Swal.getHtmlContainer().innerHTML = "Iniciando proceso, esto puede tardar algunos minutos dependiendo del tamaño del archivo.<br>Por favor no cierre la ventana.";
+                Swal.getHtmlContainer().innerHTML = "Iniciando proceso, esto puede tardar algunos minutos dependiendo del tamaño del archivo. \n Por favor no cierre la ventana.";
                 const delResp = await fetchConReintentos(resolveUrl("borrar_datos"), {
                     method: "POST", headers: { "Content-Type": "application/json" }
                 });

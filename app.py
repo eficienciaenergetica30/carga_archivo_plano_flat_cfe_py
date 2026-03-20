@@ -6,8 +6,6 @@ import openpyxl
 from datetime import datetime, date
 from decimal import Decimal, ROUND_HALF_UP
 
-# 
-
 import math
 import requests
 from db import (
@@ -59,8 +57,13 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 
 # Configuración de la aplicación
 app.config["UPLOAD_FOLDER"] = "uploads"
+app.config["BOT_FOLDER"] = "bot_files"
+
+if not os.path.exists(app.config["BOT_FOLDER"]):
+    os.makedirs(app.config["BOT_FOLDER"])
+
 app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200 MB
-ALLOWED_EXTENSIONS = {"xlsx", "xls"}
+ALLOWED_EXTENSIONS = {"xlsx", "xls", "xlsb"}
 
 # Constantes
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", "100"))
@@ -137,8 +140,17 @@ def procesar_excel(filepath, fecha_facturacion=None):
     col_indices = list(COLS_INTERES.values())
 
     try:
-        workbook = openpyxl.load_workbook(filepath, data_only=True, read_only=True)
-        sheet_names = workbook.sheetnames
+        is_xlsb = filepath.lower().endswith(".xlsb")
+        if is_xlsb:
+            import pyxlsb
+            workbook_xlsb = pyxlsb.open_workbook(filepath)
+            sheet_names = workbook_xlsb.sheets
+            workbook = None
+        else:
+            workbook = openpyxl.load_workbook(filepath, data_only=True, read_only=True)
+            sheet_names = workbook.sheetnames
+            workbook_xlsb = None
+
         num_sheets = len(sheet_names)
         hojas_procesadas = []
         mes, anio = "00", "0000"
@@ -146,12 +158,19 @@ def procesar_excel(filepath, fecha_facturacion=None):
         for sheet_name in sheet_names:
             encabezados = list(COLS_INTERES.keys())
             filas_validas = []
+
             fila_actual = 0
             fila_inicio = None
             header_found = False
 
-            sheet = workbook[sheet_name]
-            for row_cells in sheet.iter_rows(values_only=True):
+            if is_xlsb:
+                sheet_xlsb = workbook_xlsb.get_sheet(sheet_name)
+                row_iterator = ([c.v for c in r] for r in sheet_xlsb.rows())
+            else:
+                sheet = workbook[sheet_name]
+                row_iterator = sheet.iter_rows(values_only=True)
+
+            for row_cells in row_iterator:
                 fila_actual += 1
 
                 # ── Buscar Periodo (primeras 20 filas) ──────────────────────
@@ -182,33 +201,46 @@ def procesar_excel(filepath, fecha_facturacion=None):
                 if rpu_str.startswith("SUBTOTAL") or rpu_str.startswith("TOTAL"):
                     continue
 
+                # Extraer solo los índices de interés — valores crudos
                 fila_datos = [
                     row_cells[idx] if idx < len(row_cells) else None
                     for idx in col_indices
                 ]
+                # Agregar nombre de pestaña al final (campo IVATYPE)
                 fila_datos.append(sheet_name)
+
                 filas_validas.append(fila_datos)
 
-            hojas_procesadas.append({
-                "nombre":          sheet_name,
-                "encabezados":     encabezados,
-                "datos":           filas_validas,
-                "datos_preview":   filas_validas[:40],
-                "fila_inicio":     fila_inicio or 0,
-                "total_filas":     len(filas_validas),
-                "filas_eliminadas": 0,
-                "periodo":         f"{anio}-{mes.zfill(2)}",
-                "headerperiod":    f"{anio}{mes.zfill(2)}",
-            })
+            total_filas_reales = len(filas_validas)
 
-        workbook.close()
+            hojas_procesadas.append(
+                {
+                    "nombre": sheet_name,
+                    "encabezados": encabezados,
+                    "datos": filas_validas,
+                    "datos_preview": filas_validas[:40],
+                    "fila_inicio": fila_inicio or 0,
+                    "total_filas": total_filas_reales,
+                    "filas_eliminadas": 0,
+                    "periodo": f"{anio}-{mes.zfill(2)}",
+                    "headerperiod": f"{anio}{mes.zfill(2)}",
+                }
+            )
+
+            if is_xlsb:
+                sheet_xlsb.close()
+
+        if is_xlsb:
+            workbook_xlsb.close()
+        else:
+            workbook.close()
 
         return {
-            "num_hojas":         num_sheets,
-            "nombres_hojas":     sheet_names,
-            "hojas":             hojas_procesadas,
+            "num_hojas": num_sheets,
+            "nombres_hojas": sheet_names,
+            "hojas": hojas_procesadas,
             "fecha_facturacion": f"{mes}/{anio}",
-            "nombre_archivo":    os.path.basename(filepath),
+            "nombre_archivo": os.path.basename(filepath),
         }
 
     except Exception as e:
@@ -472,6 +504,12 @@ def index():
                 # Procesar el archivo Excel (el periodo se lee del propio archivo)
                 resultado = procesar_excel(filepath)
 
+                # ✅ Borrar el archivo después de procesarlo
+                try:
+                    os.remove(filepath)
+                except Exception:
+                    pass  # Si falla el borrado, no es crítico
+
                 # Renderizar la plantilla con los resultados
                 return render_template("index.html", resultado=resultado)
 
@@ -487,9 +525,6 @@ def index():
 
     # Método GET - mostrar formulario vacío
     return render_template("index.html")
-
-
- 
 
 
 def delete_all_data():
@@ -604,6 +639,168 @@ def limpiar_y_redirigir():
 @app.route("/health")
 def health_check():
     return jsonify({"status": "healthy", "message": "Service is running"})
+
+############################## Recibir archivo bot #####################################
+
+@app.route("/bot_upload", methods=["POST"])
+def bot_upload():
+    """
+    Endpoint para recibir archivos desde el bot de SAP Process Automation.
+    Recibe el archivo via multipart/form-data, lo guarda en bot_files/,
+    lo procesa e inserta en HANA, y lo borra al terminar.
+    No requiere intervención del usuario.
+
+    Validaciones:
+        - Campo 'file' presente en la request
+        - Nombre de archivo no vacío
+        - Extensión permitida (xlsx, xls, xlsb)
+        - Tamaño mínimo del archivo (no vacío/corrupto)
+        - Hojas requeridas presentes (T16, T8N, T8S)
+        - Al menos una hoja con datos
+        - Periodo legible en el archivo
+    """
+    filepath = None
+    try:
+        # ── 1. Validar que se envió el campo 'file' ──────────────────────────
+        if "file" not in request.files:
+            return jsonify({
+                "success": False,
+                "error": "No se encontró el campo 'file' en la request. Verifica que el bot esté enviando el archivo correctamente."
+            }), 400
+
+        file = request.files["file"]
+
+        # ── 2. Validar nombre de archivo ─────────────────────────────────────
+        if file.filename == "":
+            return jsonify({
+                "success": False,
+                "error": "El archivo recibido no tiene nombre."
+            }), 400
+
+        # ── 3. Validar extensión ─────────────────────────────────────────────
+        if not allowed_file(file.filename):
+            return jsonify({
+                "success": False,
+                "error": f"Extensión no permitida: '{file.filename.rsplit('.', 1)[-1]}'. Solo se aceptan: xlsx, xls, xlsb."
+            }), 400
+
+        # ── 4. Validar tamaño mínimo (archivo no vacío/corrupto) ────────────
+        file.seek(0, 2)       # ir al final del stream
+        file_size = file.tell()
+        file.seek(0)          # regresar al inicio antes de guardarlo
+
+        if file_size < 1024:  # menos de 1KB → sospechoso
+            return jsonify({
+                "success": False,
+                "error": f"El archivo es demasiado pequeño ({file_size} bytes). Puede estar vacío o corrupto."
+            }), 400
+
+        # ── 5. Guardar en bot_files/ ─────────────────────────────────────────
+        filename = secure_filename(file.filename)
+        filepath = os.path.join(app.config["BOT_FOLDER"], filename)
+        file.save(filepath)
+        print(f"[bot_upload] Archivo guardado: {filepath} ({file_size} bytes)")
+
+        # ── 6. Parsear el Excel ──────────────────────────────────────────────
+        try:
+            resultado = procesar_excel(filepath)
+        except Exception as e:
+            return jsonify({
+                "success": False,
+                "error": f"Error al leer el archivo. Puede estar malformado o no ser un Excel válido. Detalle: {str(e)}"
+            }), 422
+
+        # ── 7. Validar que el periodo sea legible ────────────────────────────
+        if resultado.get("fecha_facturacion") == "00/0000":
+            return jsonify({
+                "success": False,
+                "error": "No se pudo leer el periodo del archivo. Verifica que el bot procesó correctamente el archivo original."
+            }), 422
+
+        # ── 8. Validar hojas requeridas ──────────────────────────────────────
+        hojas_encontradas = {h["nombre"] for h in resultado["hojas"]}
+        hojas_requeridas  = {"T16", "T8N", "T8S"}
+        hojas_faltantes   = hojas_requeridas - hojas_encontradas
+
+        if hojas_faltantes:
+            return jsonify({
+                "success": False,
+                "error": f"El archivo no contiene las hojas requeridas: {sorted(hojas_faltantes)}. "
+                         f"Hojas encontradas: {sorted(hojas_encontradas)}."
+            }), 422
+
+        # ── 9. Validar que al menos una hoja tenga datos ─────────────────────
+        hojas_vacias = [h["nombre"] for h in resultado["hojas"] if h["total_filas"] == 0]
+
+        if len(hojas_vacias) == len(resultado["hojas"]):
+            return jsonify({
+                "success": False,
+                "error": f"Todas las hojas están vacías: {hojas_vacias}. El archivo no contiene datos para procesar."
+            }), 422
+
+        if hojas_vacias:
+            # Advertencia pero no bloqueante — algunas hojas pueden estar vacías
+            print(f"[bot_upload] Advertencia: hojas sin datos: {hojas_vacias}")
+
+        # ── 10. Truncar tabla e insertar hoja por hoja ───────────────────────
+        delete_result = delete_all_data()
+        if not delete_result.get("success"):
+            return jsonify({
+                "success": False,
+                "error": f"Error al limpiar la tabla antes de insertar: {delete_result.get('message')}"
+            }), 500
+
+        resultados_hojas = []
+        for hoja in resultado["hojas"]:
+            res = procesar_hoja_db(hoja, session_id=None, modo="insert")
+            resultados_hojas.append(res)
+
+        # ── 11. Respuesta enriquecida para el bot ────────────────────────────
+        total_registros = sum(r["total"]   for r in resultados_hojas)
+        total_exitos    = sum(r["exitos"]  for r in resultados_hojas)
+        total_errores   = sum(r["errores"] for r in resultados_hojas)
+
+        print(f"[bot_upload] Carga completada: {total_exitos}/{total_registros} registros exitosos")
+
+        return jsonify({
+            "success":  True,
+            "archivo":  filename,
+            "periodo":  resultado.get("fecha_facturacion"),
+            "resumen": {
+                "total_registros": total_registros,
+                "total_exitos":    total_exitos,
+                "total_errores":   total_errores,
+            },
+            "hojas": [
+                {
+                    "nombre":  r["hoja"],
+                    "total":   r["total"],
+                    "exitos":  r["exitos"],
+                    "errores": r["errores"],
+                }
+                for r in resultados_hojas
+            ],
+            "advertencias": (
+                [f"Hoja '{h}' no contiene datos" for h in hojas_vacias]
+                if hojas_vacias else []
+            ),
+        })
+
+    except Exception as e:
+        print(f"[bot_upload] Error inesperado: {e}")
+        return jsonify({
+            "success": False,
+            "error":   f"Error interno inesperado: {str(e)}"
+        }), 500
+
+    finally:
+        # Borrar el archivo siempre, haya error o no
+        try:
+            if filepath and os.path.exists(filepath):
+                os.remove(filepath)
+                print(f"[bot_upload] Archivo borrado: {filepath}")
+        except Exception:
+            pass
 
 
 # SocketIO handlers
