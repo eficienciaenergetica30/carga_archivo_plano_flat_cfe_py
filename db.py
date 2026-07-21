@@ -24,7 +24,9 @@ def load_env_from_dotenv():
 
 
 def get_hana_credentials():
-    if not (os.getenv("HANA_HOST") and os.getenv("HANA_USER") and os.getenv("HANA_PASSWORD")):
+    if not (
+        os.getenv("HANA_HOST") and os.getenv("HANA_USER") and os.getenv("HANA_PASSWORD")
+    ):
         vcap = os.getenv("VCAP_SERVICES")
         if vcap:
             try:
@@ -33,7 +35,11 @@ def get_hana_credentials():
                 for _, services in data.items():
                     for s in services:
                         c = s.get("credentials", {})
-                        if c.get("host") and (c.get("user") or c.get("username")) and c.get("password"):
+                        if (
+                            c.get("host")
+                            and (c.get("user") or c.get("username"))
+                            and c.get("password")
+                        ):
                             creds = c
                             break
                     if creds:
@@ -43,7 +49,9 @@ def get_hana_credentials():
                     port_val = creds.get("port") or creds.get("port_tls")
                     if port_val is not None:
                         os.environ.setdefault("HANA_PORT", str(port_val))
-                    os.environ.setdefault("HANA_USER", str(creds.get("user") or creds.get("username")))
+                    os.environ.setdefault(
+                        "HANA_USER", str(creds.get("user") or creds.get("username"))
+                    )
                     os.environ.setdefault("HANA_PASSWORD", str(creds.get("password")))
                     if creds.get("schema"):
                         os.environ.setdefault("HANA_SCHEMA", str(creds.get("schema")))
@@ -67,15 +75,17 @@ def get_hana_connection():
     if missing:
         raise ValueError(
             "Faltan variables de entorno para HANA: "
-            + ", ".join([
-                {
-                    "host": "HANA_HOST",
-                    "user": "HANA_USER",
-                    "password": "HANA_PASSWORD",
-                    "schema": "HANA_SCHEMA",
-                }[m]
-                for m in missing
-            ])
+            + ", ".join(
+                [
+                    {
+                        "host": "HANA_HOST",
+                        "user": "HANA_USER",
+                        "password": "HANA_PASSWORD",
+                        "schema": "HANA_SCHEMA",
+                    }[m]
+                    for m in missing
+                ]
+            )
         )
     conn = dbapi.connect(
         address=c.get("host"),
@@ -118,6 +128,9 @@ def _columns():
         "STREET2",
         "COMPANYID",
         "IVATYPE",
+        "METER",
+        "ACCOUNT",
+        "CONTRACTEDDEMAND",
     ]
 
 
@@ -132,12 +145,12 @@ def truncate_archivoplano(conn):
     cur = conn.cursor()
     try:
         print(f"Truncando tabla {_table_fqn()}")
-        cur.execute(f'TRUNCATE TABLE {_table_fqn()}')
+        cur.execute(f"TRUNCATE TABLE {_table_fqn()}")
         conn.commit()
         print("Truncate exitoso")
     except Exception as e:
         print(f"TRUNCATE falló, usando DELETE: {e}")
-        cur.execute(f'delete from {_table_fqn()}')
+        cur.execute(f"delete from {_table_fqn()}")
         conn.commit()
         print("Delete ejecutado")
     finally:
@@ -153,8 +166,11 @@ def insert_archivoplano(conn, entities):
     cols = _columns()
     qmarks = ",".join(["?"] * len(cols))
     sql = (
-        "insert into " + _table_fqn()
-        + " (" + ",".join([f'"{c}"' for c in cols]) + ")"
+        "insert into "
+        + _table_fqn()
+        + " ("
+        + ",".join([f'"{c}"' for c in cols])
+        + ")"
         + f" values ({qmarks})"
     )
     params = [[e.get(c) for c in cols] for e in entities]
@@ -189,9 +205,21 @@ def upsert_archivoplano(conn, entities):
     cols = _columns()
     key = "RPU"
     update_cols = [c for c in cols if c != key]
-    update_sql = 'update ' + _table_fqn() + ' set ' + ",".join([f'"{c}"=?' for c in update_cols]) + f' where "{key}"=?'
+    update_sql = (
+        "update "
+        + _table_fqn()
+        + " set "
+        + ",".join([f'"{c}"=?' for c in update_cols])
+        + f' where "{key}"=?'
+    )
     insert_qmarks = ",".join(["?"] * len(cols))
-    insert_sql = 'insert into ' + _table_fqn() + ' (' + ",".join([f'"{c}"' for c in cols]) + f") values ({insert_qmarks})"
+    insert_sql = (
+        "insert into "
+        + _table_fqn()
+        + " ("
+        + ",".join([f'"{c}"' for c in cols])
+        + f") values ({insert_qmarks})"
+    )
     cur = conn.cursor()
     updated = 0
     inserted = 0
@@ -213,7 +241,14 @@ def upsert_archivoplano(conn, entities):
             except Exception as ue:
                 failed += 1
                 rpu_val = e.get(key)
-                errors.append({"index": idx, "rpu": rpu_val, "message": str(ue), "operation": "update"})
+                errors.append(
+                    {
+                        "index": idx,
+                        "rpu": rpu_val,
+                        "message": str(ue),
+                        "operation": "update",
+                    }
+                )
         if to_insert:
             try:
                 cur.executemany(insert_sql, to_insert)
@@ -229,12 +264,33 @@ def upsert_archivoplano(conn, entities):
                         failed += 1
                         rpu_idx = cols.index("RPU") if "RPU" in cols else None
                         rpu_val = p[rpu_idx] if rpu_idx is not None else None
-                        errors.append({"index": idx, "rpu": rpu_val, "message": str(ie), "operation": "insert"})
+                        errors.append(
+                            {
+                                "index": idx,
+                                "rpu": rpu_val,
+                                "message": str(ie),
+                                "operation": "insert",
+                            }
+                        )
         conn.commit()
-        print(f"Upsert resumen: updated={updated}, inserted={inserted}, errores={failed}")
-        return {"updated": updated, "inserted": inserted, "failed": failed, "errors": errors, "update_sql": update_sql, "insert_sql": insert_sql}
+        print(
+            f"Upsert resumen: updated={updated}, inserted={inserted}, errores={failed}"
+        )
+        return {
+            "updated": updated,
+            "inserted": inserted,
+            "failed": failed,
+            "errors": errors,
+            "update_sql": update_sql,
+            "insert_sql": insert_sql,
+        }
     except Exception as e:
         print(f"Fallo general en upsert: {e}")
-        return {"updated": updated, "inserted": inserted, "failed": failed, "errors": errors or [{"index": None, "rpu": None, "message": str(e)}]}
+        return {
+            "updated": updated,
+            "inserted": inserted,
+            "failed": failed,
+            "errors": errors or [{"index": None, "rpu": None, "message": str(e)}],
+        }
     finally:
         cur.close()

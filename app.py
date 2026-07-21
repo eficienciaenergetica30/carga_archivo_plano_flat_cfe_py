@@ -18,6 +18,7 @@ from db import (
 import socket
 from werkzeug.middleware.proxy_fix import ProxyFix
 
+
 # Configuración DNS para SAP BTP - SOLO UNA VEZ
 def configure_dns_for_sap_btp():
     if "VCAP_APPLICATION" in os.environ:
@@ -115,27 +116,30 @@ def procesar_excel(filepath, fecha_facturacion=None):
 
     # Columnas de interés: nombre → índice 0-based (número de columna - 1)
     COLS_INTERES = {
-        "RPU":                  0,
-        "Periodo":              1,
-        "TipoMov":              2,
-        "DigVer":               3,
-        "Importe total":        11,
+        "RPU": 0,
+        "Periodo": 1,
+        "TipoMov": 2,
+        "DigVer": 3,
+        "Importe total": 11,
         "Importe energía total": 12,
-        "Importe IVA":          13,
-        "Motivo":               18,
-        "Importe":              19,
-        "Consumo":              80,
-        "Demanda":              81,
-        "Reactivos":            82,
-        "Nombre":               242,
-        "Dirección":            243,
-        "Ciudad":               244,
-        "Estado":               245,
-        "RFC":                  246,
-        "Colonia":              247,
-        "Calle 1":              248,
-        "Calle 2":              249,
-        "IdEmpresa":            250,
+        "Importe IVA": 13,
+        "Motivo": 18,
+        "Importe": 19,
+        "Consumo": 80,
+        "Demanda": 81,
+        "Reactivos": 82,
+        "Nombre": 242,
+        "Dirección": 243,
+        "Ciudad": 244,
+        "Estado": 245,
+        "RFC": 246,
+        "Colonia": 247,
+        "Calle 1": 248,
+        "Calle 2": 249,
+        "IdEmpresa": 250,
+        "Numero": 97,
+        "Cuenta": 230,
+        "CargaContratada": 234,
     }
     col_indices = list(COLS_INTERES.values())
 
@@ -143,6 +147,7 @@ def procesar_excel(filepath, fecha_facturacion=None):
         is_xlsb = filepath.lower().endswith(".xlsb")
         if is_xlsb:
             import pyxlsb
+
             workbook_xlsb = pyxlsb.open_workbook(filepath)
             sheet_names = workbook_xlsb.sheets
             workbook = None
@@ -175,7 +180,10 @@ def procesar_excel(filepath, fecha_facturacion=None):
 
                 # ── Buscar Periodo (primeras 20 filas) ──────────────────────
                 if fila_actual <= 20:
-                    if row_cells and str(row_cells[0] or "").strip().lower() == "periodo":
+                    if (
+                        row_cells
+                        and str(row_cells[0] or "").strip().lower() == "periodo"
+                    ):
                         periodo_val = row_cells[1] if len(row_cells) > 1 else None
                         if periodo_val:
                             partes = str(periodo_val).strip().split("-")
@@ -310,7 +318,6 @@ def mapear_registro(fila, headerperiod=""):
     # print("IVA RAW:", fila[6], repr(fila[6]), type(fila[6]))
     # print("-----------------------------------")
 
-
     def to_str(v):
         """String limpio — nunca agrega decimales a enteros."""
         if v is None:
@@ -329,34 +336,37 @@ def mapear_registro(fila, headerperiod=""):
 
     return {
         # Keys (String)
-        "RPU":           to_str(fila[0]),
-        "HEADERPERIOD":  headerperiod,
-        "PERIOD":        to_str(fila[1]),
-        "MOVTYPE":       to_str(fila[2]),
-        "CHECKDIG":      to_str(fila[3]),   # DigVer: String, no Decimal
+        "RPU": to_str(fila[0]),
+        "HEADERPERIOD": headerperiod,
+        "PERIOD": to_str(fila[1]),
+        "MOVTYPE": to_str(fila[2]),
+        "CHECKDIG": to_str(fila[3]),
         # Decimals
-        "TOTALAMOUNT":   to_decimal(fila[4]),
-        "ENERGYAMOUNT":  to_decimal(fila[5]),
-        "IVA":           to_decimal(fila[6]),
+        "TOTALAMOUNT": to_decimal(fila[4]),
+        "ENERGYAMOUNT": to_decimal(fila[5]),
+        "IVA": to_decimal(fila[6]),
         # String
-        "REASON":        to_str(fila[7]),
+        "REASON": to_str(fila[7]),
         # Decimals
-        "AMOUNT":        to_decimal(fila[8]),
-        "CONSUMPTION":   to_decimal(fila[9]),
-        "DEMAND":        to_decimal(fila[10]),
+        "AMOUNT": to_decimal(fila[8]),
+        "CONSUMPTION": to_decimal(fila[9]),
+        "DEMAND": to_decimal(fila[10]),
         "REACTIVEPOWER": to_decimal(fila[11]),
         # Strings
-        "CUSTOMERNAME":  to_str(fila[12]),
-        "ADDRESS":       to_str(fila[13]),
-        "CITY":          to_str(fila[14]),
-        "STATE":         to_str(fila[15]),
-        "RFC":           to_str(fila[16]),
-        "NEIGHBORHOOD":  to_str(fila[17]),
-        "STREET1":       to_str(fila[18]),
-        "STREET2":       to_str(fila[19]),
-        "COMPANYID":     to_str(fila[20]),
-        # Campo calculado — nombre de la pestaña de origen
-        "IVATYPE":       to_str(fila[21]) if len(fila) > 21 else "",
+        "CUSTOMERNAME": to_str(fila[12]),
+        "ADDRESS": to_str(fila[13]),
+        "CITY": to_str(fila[14]),
+        "STATE": to_str(fila[15]),
+        "RFC": to_str(fila[16]),
+        "NEIGHBORHOOD": to_str(fila[17]),
+        "STREET1": to_str(fila[18]),
+        "STREET2": to_str(fila[19]),
+        "COMPANYID": to_str(fila[20]),
+        "METER": to_str(fila[21]),
+        "ACCOUNT": to_str(fila[22]),
+        "CONTRACTEDDEMAND": to_decimal(fila[23]),
+        # Campo calculado — IVATYPE ahora corre del índice 21 al 24
+        "IVATYPE": to_str(fila[24]) if len(fila) > 24 else "",
     }
 
 
@@ -423,8 +433,6 @@ def procesar_hoja_db(hoja, session_id, modo):
 
 # ***************************************************************************************************************
 
- 
-
 
 @app.route("/enviar_hoja", methods=["POST"])
 def enviar_hoja():
@@ -437,7 +445,9 @@ def enviar_hoja():
         data = request.get_json(force=True)
         hoja = data.get("hoja")
         if not hoja:
-            return jsonify({"success": False, "error": "Falta el campo 'hoja' en el body"})
+            return jsonify(
+                {"success": False, "error": "Falta el campo 'hoja' en el body"}
+            )
         session_id = request.args.get("session_id")
         modo = request.args.get("mode", "insert")
 
@@ -640,7 +650,9 @@ def limpiar_y_redirigir():
 def health_check():
     return jsonify({"status": "healthy", "message": "Service is running"})
 
+
 ############################## Recibir archivo bot #####################################
+
 
 @app.route("/bot_upload", methods=["POST"])
 def bot_upload():
@@ -663,37 +675,54 @@ def bot_upload():
     try:
         # ── 1. Validar que se envió el campo 'file' ──────────────────────────
         if "file" not in request.files:
-            return jsonify({
-                "success": False,
-                "error": "No se encontró el campo 'file' en la request. Verifica que el bot esté enviando el archivo correctamente."
-            }), 400
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": "No se encontró el campo 'file' en la request. Verifica que el bot esté enviando el archivo correctamente.",
+                    }
+                ),
+                400,
+            )
 
         file = request.files["file"]
 
         # ── 2. Validar nombre de archivo ─────────────────────────────────────
         if file.filename == "":
-            return jsonify({
-                "success": False,
-                "error": "El archivo recibido no tiene nombre."
-            }), 400
+            return (
+                jsonify(
+                    {"success": False, "error": "El archivo recibido no tiene nombre."}
+                ),
+                400,
+            )
 
         # ── 3. Validar extensión ─────────────────────────────────────────────
         if not allowed_file(file.filename):
-            return jsonify({
-                "success": False,
-                "error": f"Extensión no permitida: '{file.filename.rsplit('.', 1)[-1]}'. Solo se aceptan: xlsx, xls, xlsb."
-            }), 400
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": f"Extensión no permitida: '{file.filename.rsplit('.', 1)[-1]}'. Solo se aceptan: xlsx, xls, xlsb.",
+                    }
+                ),
+                400,
+            )
 
         # ── 4. Validar tamaño mínimo (archivo no vacío/corrupto) ────────────
-        file.seek(0, 2)       # ir al final del stream
+        file.seek(0, 2)  # ir al final del stream
         file_size = file.tell()
-        file.seek(0)          # regresar al inicio antes de guardarlo
+        file.seek(0)  # regresar al inicio antes de guardarlo
 
         if file_size < 1024:  # menos de 1KB → sospechoso
-            return jsonify({
-                "success": False,
-                "error": f"El archivo es demasiado pequeño ({file_size} bytes). Puede estar vacío o corrupto."
-            }), 400
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": f"El archivo es demasiado pequeño ({file_size} bytes). Puede estar vacío o corrupto.",
+                    }
+                ),
+                400,
+            )
 
         # ── 5. Guardar en bot_files/ ─────────────────────────────────────────
         filename = secure_filename(file.filename)
@@ -705,38 +734,60 @@ def bot_upload():
         try:
             resultado = procesar_excel(filepath)
         except Exception as e:
-            return jsonify({
-                "success": False,
-                "error": f"Error al leer el archivo. Puede estar malformado o no ser un Excel válido. Detalle: {str(e)}"
-            }), 422
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": f"Error al leer el archivo. Puede estar malformado o no ser un Excel válido. Detalle: {str(e)}",
+                    }
+                ),
+                422,
+            )
 
         # ── 7. Validar que el periodo sea legible ────────────────────────────
         if resultado.get("fecha_facturacion") == "00/0000":
-            return jsonify({
-                "success": False,
-                "error": "No se pudo leer el periodo del archivo. Verifica que el bot procesó correctamente el archivo original."
-            }), 422
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": "No se pudo leer el periodo del archivo. Verifica que el bot procesó correctamente el archivo original.",
+                    }
+                ),
+                422,
+            )
 
         # ── 8. Validar hojas requeridas ──────────────────────────────────────
         hojas_encontradas = {h["nombre"] for h in resultado["hojas"]}
-        hojas_requeridas  = {"T16", "T8N", "T8S"}
-        hojas_faltantes   = hojas_requeridas - hojas_encontradas
+        hojas_requeridas = {"T16", "T8N", "T8S"}
+        hojas_faltantes = hojas_requeridas - hojas_encontradas
 
         if hojas_faltantes:
-            return jsonify({
-                "success": False,
-                "error": f"El archivo no contiene las hojas requeridas: {sorted(hojas_faltantes)}. "
-                         f"Hojas encontradas: {sorted(hojas_encontradas)}."
-            }), 422
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": f"El archivo no contiene las hojas requeridas: {sorted(hojas_faltantes)}. "
+                        f"Hojas encontradas: {sorted(hojas_encontradas)}.",
+                    }
+                ),
+                422,
+            )
 
         # ── 9. Validar que al menos una hoja tenga datos ─────────────────────
-        hojas_vacias = [h["nombre"] for h in resultado["hojas"] if h["total_filas"] == 0]
+        hojas_vacias = [
+            h["nombre"] for h in resultado["hojas"] if h["total_filas"] == 0
+        ]
 
         if len(hojas_vacias) == len(resultado["hojas"]):
-            return jsonify({
-                "success": False,
-                "error": f"Todas las hojas están vacías: {hojas_vacias}. El archivo no contiene datos para procesar."
-            }), 422
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": f"Todas las hojas están vacías: {hojas_vacias}. El archivo no contiene datos para procesar.",
+                    }
+                ),
+                422,
+            )
 
         if hojas_vacias:
             # Advertencia pero no bloqueante — algunas hojas pueden estar vacías
@@ -745,10 +796,15 @@ def bot_upload():
         # ── 10. Truncar tabla e insertar hoja por hoja ───────────────────────
         delete_result = delete_all_data()
         if not delete_result.get("success"):
-            return jsonify({
-                "success": False,
-                "error": f"Error al limpiar la tabla antes de insertar: {delete_result.get('message')}"
-            }), 500
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": f"Error al limpiar la tabla antes de insertar: {delete_result.get('message')}",
+                    }
+                ),
+                500,
+            )
 
         resultados_hojas = []
         for hoja in resultado["hojas"]:
@@ -756,42 +812,47 @@ def bot_upload():
             resultados_hojas.append(res)
 
         # ── 11. Respuesta enriquecida para el bot ────────────────────────────
-        total_registros = sum(r["total"]   for r in resultados_hojas)
-        total_exitos    = sum(r["exitos"]  for r in resultados_hojas)
-        total_errores   = sum(r["errores"] for r in resultados_hojas)
+        total_registros = sum(r["total"] for r in resultados_hojas)
+        total_exitos = sum(r["exitos"] for r in resultados_hojas)
+        total_errores = sum(r["errores"] for r in resultados_hojas)
 
-        print(f"[bot_upload] Carga completada: {total_exitos}/{total_registros} registros exitosos")
+        print(
+            f"[bot_upload] Carga completada: {total_exitos}/{total_registros} registros exitosos"
+        )
 
-        return jsonify({
-            "success":  True,
-            "archivo":  filename,
-            "periodo":  resultado.get("fecha_facturacion"),
-            "resumen": {
-                "total_registros": total_registros,
-                "total_exitos":    total_exitos,
-                "total_errores":   total_errores,
-            },
-            "hojas": [
-                {
-                    "nombre":  r["hoja"],
-                    "total":   r["total"],
-                    "exitos":  r["exitos"],
-                    "errores": r["errores"],
-                }
-                for r in resultados_hojas
-            ],
-            "advertencias": (
-                [f"Hoja '{h}' no contiene datos" for h in hojas_vacias]
-                if hojas_vacias else []
-            ),
-        })
+        return jsonify(
+            {
+                "success": True,
+                "archivo": filename,
+                "periodo": resultado.get("fecha_facturacion"),
+                "resumen": {
+                    "total_registros": total_registros,
+                    "total_exitos": total_exitos,
+                    "total_errores": total_errores,
+                },
+                "hojas": [
+                    {
+                        "nombre": r["hoja"],
+                        "total": r["total"],
+                        "exitos": r["exitos"],
+                        "errores": r["errores"],
+                    }
+                    for r in resultados_hojas
+                ],
+                "advertencias": (
+                    [f"Hoja '{h}' no contiene datos" for h in hojas_vacias]
+                    if hojas_vacias
+                    else []
+                ),
+            }
+        )
 
     except Exception as e:
         print(f"[bot_upload] Error inesperado: {e}")
-        return jsonify({
-            "success": False,
-            "error":   f"Error interno inesperado: {str(e)}"
-        }), 500
+        return (
+            jsonify({"success": False, "error": f"Error interno inesperado: {str(e)}"}),
+            500,
+        )
 
     finally:
         # Borrar el archivo siempre, haya error o no
